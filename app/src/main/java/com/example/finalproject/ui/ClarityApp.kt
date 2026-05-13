@@ -669,6 +669,11 @@ private fun EditTaskScreen(
     var repeatRule by remember(task?.id) { mutableStateOf(task?.let { RepeatRule.fromStored(it.repeatRule) } ?: RepeatRule.NONE) }
     var newCategoryOpen by remember { mutableStateOf(false) }
     var deleteConfirmOpen by remember { mutableStateOf(false) }
+    val visibleCategories = (listOf(category) + categories.filter { it != "全部任务" })
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinct()
+        .take(8)
 
     Box(
         modifier
@@ -724,7 +729,7 @@ private fun EditTaskScreen(
                 PageCard {
                     FieldLabel("分类")
                     ChipRow {
-                        categories.filter { it != "全部任务" }.take(8).forEach { item ->
+                        visibleCategories.forEach { item ->
                             FilterChip(selected = category == item, onClick = { category = item }, label = { Text(item) })
                         }
                         OutlinedButton(onClick = { newCategoryOpen = true }, shape = CircleShape) {
@@ -917,15 +922,24 @@ private fun TimerScreen(
     tasks: List<TaskEntity>,
     completions: List<TaskCompletionEntity>,
 ) {
-    val totalSeconds = 25 * 60
+    var totalMinutes by remember { mutableIntStateOf(25) }
+    val totalSeconds = totalMinutes * 60
     var timeLeft by remember { mutableIntStateOf(totalSeconds) }
     var playing by remember { mutableStateOf(false) }
     var noiseOn by remember { mutableStateOf(false) }
     var taskMenuOpen by remember { mutableStateOf(false) }
+    var customDurationOpen by remember { mutableStateOf(false) }
+    var customMinutesText by remember { mutableStateOf(totalMinutes.toString()) }
     val noisePlayer = remember { BrownNoisePlayer() }
     val today = LocalDate.now()
     val candidates = taskInstancesForDate(tasks, completions, today).filter { !it.completed }
     val selectedTask = tasks.firstOrNull { it.id == viewModel.selectedFocusTaskId.value } ?: candidates.firstOrNull()?.task
+    val setDuration: (Int) -> Unit = { minutes ->
+        val safeMinutes = minutes.coerceIn(1, 240)
+        totalMinutes = safeMinutes
+        timeLeft = safeMinutes * 60
+        playing = false
+    }
 
     DisposableEffect(Unit) {
         onDispose { noisePlayer.stop() }
@@ -964,7 +978,7 @@ private fun TimerScreen(
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(selectedTask?.title ?: "自由专注", style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
-                Text("25 分钟番茄钟", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("$totalMinutes 分钟番茄钟", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             DropdownMenu(expanded = taskMenuOpen, onDismissRequest = { taskMenuOpen = false }) {
                 DropdownMenuItem(text = { Text("自由专注") }, onClick = {
@@ -979,7 +993,16 @@ private fun TimerScreen(
                 }
             }
         }
-        Spacer(Modifier.height(40.dp))
+        Spacer(Modifier.height(24.dp))
+        DurationSelector(
+            totalMinutes = totalMinutes,
+            onSelect = setDuration,
+            onCustom = {
+                customMinutesText = totalMinutes.toString()
+                customDurationOpen = true
+            },
+        )
+        Spacer(Modifier.height(32.dp))
         TimerDial(timeLeft = timeLeft, totalSeconds = totalSeconds)
         Spacer(Modifier.height(42.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(StackGap), verticalAlignment = Alignment.CenterVertically) {
@@ -997,6 +1020,78 @@ private fun TimerScreen(
             }
         }
     }
+
+    if (customDurationOpen) {
+        CustomDurationDialog(
+            value = customMinutesText,
+            onValueChange = { customMinutesText = it },
+            onDismiss = { customDurationOpen = false },
+            onSave = {
+                setDuration(it)
+                customDurationOpen = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun DurationSelector(
+    totalMinutes: Int,
+    onSelect: (Int) -> Unit,
+    onCustom: () -> Unit,
+) {
+    val presets = listOf(15, 25, 45, 60)
+    ChipRow {
+        presets.forEach { minutes ->
+            FilterChip(
+                selected = totalMinutes == minutes,
+                onClick = { onSelect(minutes) },
+                label = { Text("${minutes} 分钟") },
+            )
+        }
+        FilterChip(
+            selected = totalMinutes !in presets,
+            onClick = onCustom,
+            label = { Text("自定义") },
+        )
+    }
+}
+
+@Composable
+private fun CustomDurationDialog(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onSave: (Int) -> Unit,
+) {
+    val minutes = value.toIntOrNull()
+    val valid = minutes != null && minutes in 1..240
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("自定义专注时长") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    label = { Text("分钟") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                Text("请输入 1 到 240 分钟。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = valid, onClick = { onSave(minutes ?: 25) }) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
 }
 
 @Composable
