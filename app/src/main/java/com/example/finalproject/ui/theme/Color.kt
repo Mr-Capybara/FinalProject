@@ -1,0 +1,36 @@
+package com.example.finalproject.ui.theme
+
+import androidx.compose.ui.graphics.Color
+
+val ClaritySecondaryContainer = Color(0xFFC5E8F6)
+val ClarityPrimaryContainer = Color(0xFF8FB9A8)
+val ClarityTertiaryFixed = Color(0xFFFFDAD6)
+val ClarityOnSurface = Color(0xFF1A1C1B)
+val ClarityPrimary = Color(0xFF3E6658)
+val ClaritySurfaceContainerHighest = Color(0xFFE2E3E0)
+val ClaritySurfaceVariant = Color(0xFFE2E3E0)
+val ClaritySurfaceBright = Color(0xFFF9F9F7)
+val ClaritySurfaceContainer = Color(0xFFEEEEEB)
+val ClarityOnSecondaryContainer = Color(0xFF486975)
+val ClarityOnTertiaryContainer = Color(0xFF613834)
+val ClaritySurfaceDim = Color(0xFFDADAD8)
+val ClarityOnSurfaceVariant = Color(0xFF414845)
+val ClarityErrorContainer = Color(0xFFFFDAD6)
+val ClarityError = Color(0xFFBA1A1A)
+val ClaritySecondary = Color(0xFF42636F)
+val ClarityBackground = Color(0xFFF9F9F7)
+val ClarityOutline = Color(0xFF717975)
+val ClarityOnPrimaryContainer = Color(0xFF224A3D)
+val ClarityTertiaryContainer = Color(0xFFDBA29D)
+val ClaritySurfaceContainerLowest = Color(0xFFFFFFFF)
+val ClarityTertiary = Color(0xFF80524E)
+val ClarityOutlineVariant = Color(0xFFC0C8C3)
+val ClaritySurfaceContainerLow = Color(0xFFF3F4F1)
+val ClarityPrimaryFixed = Color(0xFFC0ECDA)
+val ClarityOnPrimaryFixed = Color(0xFF002117)
+val ClaritySurface = Color(0xFFF9F9F7)
+val ClaritySurfaceContainerHigh = Color(0xFFE8E8E6)
+
+val ThemeGreen = ClarityPrimary
+val ThemeBlue = Color(0xFF42636F)
+val ThemeRose = Color(0xFF80524E)
