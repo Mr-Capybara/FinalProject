@@ -16,6 +16,7 @@ import com.example.finalproject.data.TaskEntity
 import com.example.finalproject.data.TaskInstance
 import com.example.finalproject.data.filterTaskInstances
 import com.example.finalproject.data.taskInstancesForDate
+import com.example.finalproject.data.validateTaskDraft
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -23,7 +24,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
-import java.time.LocalTime
 
 enum class AppTab(val label: String) {
     CALENDAR("日历"),
@@ -209,14 +209,6 @@ class ClarityViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun validate(draft: TaskDraft): String? {
-        if (draft.title.trim().isEmpty()) return "请输入任务标题"
-        if (draft.category.trim().isEmpty()) return "请输入分类"
-        val dateValid = runCatching { LocalDate.parse(draft.date) }.isSuccess
-        if (!dateValid) return "日期格式应为 yyyy-MM-dd"
-        val start = runCatching { LocalTime.parse(draft.startTime) }.getOrNull()
-        val end = runCatching { LocalTime.parse(draft.endTime) }.getOrNull()
-        if (start == null || end == null) return "时间格式应为 HH:mm"
-        if (!end.isAfter(start)) return "结束时间需要晚于开始时间"
-        return null
+        return validateTaskDraft(draft)
     }
 }

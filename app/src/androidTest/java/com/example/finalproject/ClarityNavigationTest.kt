@@ -29,6 +29,10 @@ class ClarityNavigationTest {
         composeRule.onNodeWithText("习惯养成").assertIsDisplayed()
         composeRule.onNodeWithText("平均时长").assertIsDisplayed()
 
+        composeRule.onNodeWithText("专注").performClick()
+        composeRule.onNodeWithText("倒计时").assertIsDisplayed()
+        composeRule.onNodeWithText("正计时").assertIsDisplayed()
+
         composeRule.onNodeWithText("设置").performClick()
         composeRule.onNodeWithText("外观").assertIsDisplayed()
     }
@@ -41,5 +45,14 @@ class ClarityNavigationTest {
         composeRule.onNodeWithText("日期").assertIsDisplayed()
         composeRule.onNodeWithText("开始时间").assertIsDisplayed()
         composeRule.onNodeWithText("结束时间").assertIsDisplayed()
+    }
+
+    @Test
+    fun settingsShowsConciseInstructions() {
+        composeRule.onNodeWithText("设置").performClick()
+        composeRule.onNodeWithText("使用说明").performClick()
+
+        composeRule.onNodeWithText("时间可留空", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("倒计时或正计时", substring = true).assertIsDisplayed()
     }
 }

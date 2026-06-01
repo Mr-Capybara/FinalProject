@@ -5,11 +5,13 @@ import com.example.finalproject.data.FocusSessionEntity
 import com.example.finalproject.data.Priority
 import com.example.finalproject.data.RepeatRule
 import com.example.finalproject.data.TaskCompletionEntity
+import com.example.finalproject.data.TaskDraft
 import com.example.finalproject.data.TaskEntity
 import com.example.finalproject.data.calculateDashboardStats
 import com.example.finalproject.data.filterTaskInstances
 import com.example.finalproject.data.habitProgressForTask
 import com.example.finalproject.data.taskInstancesForDate
+import com.example.finalproject.data.validateTaskDraft
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -56,6 +58,19 @@ class TaskCalculationsTest {
         assertTrue(nextMonday.contains("weekly"))
         assertTrue(nextMonthSameDay.contains("daily"))
         assertTrue(nextMonthSameDay.contains("monthly"))
+    }
+
+    @Test
+    fun sortsTimedTasksBeforeUntimedTasksOnTheSameDate() {
+        val date = LocalDate.parse("2026-05-11")
+        val tasks = listOf(
+            task(id = "untimed", title = "整理资料", startTime = "", endTime = ""),
+            task(id = "timed", title = "晨会", startTime = "09:00", endTime = "09:30"),
+        )
+
+        val result = taskInstancesForDate(tasks, emptyList(), date).map { it.task.id }
+
+        assertEquals(listOf("timed", "untimed"), result)
     }
 
     @Test
@@ -151,6 +166,15 @@ class TaskCalculationsTest {
         assertEquals("次", monthlyProgress.streakUnit)
     }
 
+    @Test
+    fun validatesTaskDraftWithOptionalTimeRange() {
+        assertEquals(null, validateTaskDraft(draft(startTime = "", endTime = "")))
+        assertEquals("请同时设置开始和结束时间", validateTaskDraft(draft(startTime = "09:00", endTime = "")))
+        assertEquals("请同时设置开始和结束时间", validateTaskDraft(draft(startTime = "", endTime = "10:00")))
+        assertEquals("结束时间需要晚于开始时间", validateTaskDraft(draft(startTime = "11:00", endTime = "10:00")))
+        assertEquals(null, validateTaskDraft(draft(startTime = "09:00", endTime = "10:00")))
+    }
+
     private fun task(
         id: String,
         title: String,
@@ -160,13 +184,15 @@ class TaskCalculationsTest {
         repeat: RepeatRule = RepeatRule.NONE,
         isHabit: Boolean = false,
         date: String = "2026-05-11",
+        startTime: String = "09:00",
+        endTime: String = "10:00",
     ) = TaskEntity(
         id = id,
         title = title,
         notes = "",
         date = date,
-        startTime = "09:00",
-        endTime = "10:00",
+        startTime = startTime,
+        endTime = endTime,
         category = category,
         priority = priority.name,
         completed = completed,
@@ -179,4 +205,19 @@ class TaskCalculationsTest {
     private fun millis(value: String, zone: ZoneId): Long {
         return LocalDateTime.parse(value).atZone(zone).toInstant().toEpochMilli()
     }
+
+    private fun draft(
+        startTime: String,
+        endTime: String,
+    ) = TaskDraft(
+        title = "写项目报告",
+        notes = "",
+        date = "2026-05-11",
+        startTime = startTime,
+        endTime = endTime,
+        category = "学习",
+        priority = Priority.MEDIUM,
+        isHabit = false,
+        repeatRule = RepeatRule.NONE,
+    )
 }

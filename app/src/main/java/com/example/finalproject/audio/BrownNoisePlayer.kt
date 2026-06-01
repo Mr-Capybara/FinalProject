@@ -9,6 +9,8 @@ import kotlin.random.Random
 class BrownNoisePlayer {
     @Volatile
     private var running = false
+    @Volatile
+    private var stopping = false
     private var track: AudioTrack? = null
     private var worker: Thread? = null
 
@@ -39,15 +41,35 @@ class BrownNoisePlayer {
             .build()
         track = audioTrack
         running = true
+        stopping = false
         audioTrack.play()
         worker = thread(name = "ClarityBrownNoise") {
             val data = ShortArray(bufferSize / 2)
-            var last = 0.0
+            val fadeInFrames = sampleRate / 2
+            val fadeOutFrames = sampleRate / 4
+            var frame = 0L
+            var stopFrame = 0
+            var low = 0.0
+            var lower = 0.0
+            var drift = 0.0
             while (running) {
                 for (i in data.indices) {
                     val white = Random.nextDouble(-1.0, 1.0)
-                    last = (last + 0.02 * white) / 1.02
-                    data[i] = (last * 14_000).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+                    low += 0.018 * (white - low)
+                    lower += 0.006 * (low - lower)
+                    drift += 0.0002 * (Random.nextDouble(-1.0, 1.0) - drift)
+
+                    val fadeIn = (frame.toDouble() / fadeInFrames).coerceIn(0.0, 1.0)
+                    val fadeOut = if (stopping) {
+                        stopFrame += 1
+                        (1.0 - stopFrame.toDouble() / fadeOutFrames).coerceIn(0.0, 1.0)
+                    } else {
+                        1.0
+                    }
+                    val sample = ((lower * 0.82) + (low * 0.18) + (drift * 0.08)) * 4_200 * fadeIn * fadeOut
+                    data[i] = sample.toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+                    frame += 1
+                    if (stopping && stopFrame >= fadeOutFrames) running = false
                 }
                 audioTrack.write(data, 0, data.size)
             }
@@ -55,8 +77,11 @@ class BrownNoisePlayer {
     }
 
     fun stop() {
-        running = false
+        if (!running && worker == null) return
+        stopping = true
         worker?.join(250)
+        running = false
+        stopping = false
         worker = null
         track?.run {
             runCatching { pause() }

@@ -152,6 +152,11 @@ private val ItemShape = RoundedCornerShape(12.dp)
 private val DateFormatter = DateTimeFormatter.ofPattern("yyyy年M月d日")
 private val MonthFormatter = DateTimeFormatter.ofPattern("yyyy年M月")
 
+private enum class FocusMode(val label: String) {
+    COUNTDOWN("倒计时"),
+    STOPWATCH("正计时"),
+}
+
 @Composable
 fun ClarityApp(viewModel: ClarityViewModel) {
     val tasks by viewModel.tasks.collectAsState()
@@ -703,8 +708,8 @@ private fun EditTaskScreen(
     var category by remember(task?.id) { mutableStateOf(task?.category ?: "工作") }
     var priority by remember(task?.id) { mutableStateOf(task?.let { Priority.fromStored(it.priority) } ?: Priority.MEDIUM) }
     var date by remember(task?.id) { mutableStateOf(task?.date ?: LocalDate.now().toString()) }
-    var startTime by remember(task?.id) { mutableStateOf(task?.startTime ?: "12:00") }
-    var endTime by remember(task?.id) { mutableStateOf(task?.endTime ?: "13:00") }
+    var startTime by remember(task?.id) { mutableStateOf(task?.startTime.orEmpty()) }
+    var endTime by remember(task?.id) { mutableStateOf(task?.endTime.orEmpty()) }
     var isHabit by remember(task?.id) { mutableStateOf(task?.isHabit ?: false) }
     var repeatRule by remember(task?.id) { mutableStateOf(task?.let { RepeatRule.fromStored(it.repeatRule) } ?: RepeatRule.NONE) }
     var newCategoryOpen by remember { mutableStateOf(false) }
@@ -808,19 +813,23 @@ private fun EditTaskScreen(
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         ReadOnlyPickerField(
-                            value = startTime,
-                            label = "开始时间",
-                            icon = Icons.Rounded.Timer,
-                            modifier = Modifier.weight(1f),
-                            onClick = { startTimePickerOpen = true },
-                        )
-                        ReadOnlyPickerField(
-                            value = endTime,
-                            label = "结束时间",
-                            icon = Icons.Rounded.Timer,
-                            modifier = Modifier.weight(1f),
-                            onClick = { endTimePickerOpen = true },
-                        )
+                        value = startTime,
+                        label = "开始时间",
+                        placeholder = "开始",
+                        icon = Icons.Rounded.Timer,
+                        modifier = Modifier.weight(1f),
+                        onClick = { startTimePickerOpen = true },
+                        onClear = { startTime = "" },
+                    )
+                    ReadOnlyPickerField(
+                        value = endTime,
+                        label = "结束时间",
+                        placeholder = "结束",
+                        icon = Icons.Rounded.Timer,
+                        modifier = Modifier.weight(1f),
+                        onClick = { endTimePickerOpen = true },
+                        onClear = { endTime = "" },
+                    )
                     }
                 }
                 PageCard {
@@ -881,8 +890,8 @@ private fun EditTaskScreen(
                             title = title,
                             notes = notes,
                             date = date,
-                            startTime = startTime,
-                            endTime = endTime,
+                            startTime = startTime.trim(),
+                            endTime = endTime.trim(),
                             category = category,
                             priority = priority,
                             isHabit = isHabit,
@@ -971,22 +980,35 @@ private fun ReadOnlyPickerField(
     label: String,
     icon: ImageVector,
     modifier: Modifier = Modifier,
+    placeholder: String? = null,
+    onClear: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
+    val canClear = value.isNotBlank() && onClear != null
     Box(modifier) {
         OutlinedTextField(
             value = value,
             onValueChange = {},
             label = { Text(label) },
+            placeholder = placeholder?.let { { Text(it) } },
             readOnly = true,
             singleLine = true,
-            trailingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            trailingIcon = {
+                if (canClear) {
+                    IconButton(onClick = { onClear?.invoke() }) {
+                        Icon(Icons.Rounded.Close, contentDescription = "清除$label", modifier = Modifier.size(18.dp))
+                    }
+                } else {
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
+            },
             modifier = Modifier.fillMaxWidth(),
             shape = ItemShape,
         )
         Box(
             Modifier
                 .matchParentSize()
+                .padding(end = if (canClear) 48.dp else 0.dp)
                 .clip(ItemShape)
                 .clickable(onClick = onClick)
         )
@@ -1082,9 +1104,11 @@ private fun TimerScreen(
     tasks: List<TaskEntity>,
     completions: List<TaskCompletionEntity>,
 ) {
+    var mode by remember { mutableStateOf(FocusMode.COUNTDOWN) }
     var totalMinutes by remember { mutableIntStateOf(25) }
     val totalSeconds = totalMinutes * 60
     var timeLeft by remember { mutableIntStateOf(totalSeconds) }
+    var elapsedSeconds by remember { mutableIntStateOf(0) }
     var playing by remember { mutableStateOf(false) }
     var noiseOn by remember { mutableStateOf(false) }
     var taskMenuOpen by remember { mutableStateOf(false) }
@@ -1094,10 +1118,16 @@ private fun TimerScreen(
     val today = LocalDate.now()
     val candidates = taskInstancesForDate(tasks, completions, today).filter { !it.completed }
     val selectedTask = tasks.firstOrNull { it.id == viewModel.selectedFocusTaskId.value } ?: candidates.firstOrNull()?.task
+    val resetTimer = {
+        playing = false
+        timeLeft = totalSeconds
+        elapsedSeconds = 0
+    }
     val setDuration: (Int) -> Unit = { minutes ->
         val safeMinutes = minutes.coerceIn(1, 240)
         totalMinutes = safeMinutes
         timeLeft = safeMinutes * 60
+        elapsedSeconds = 0
         playing = false
     }
 
@@ -1105,14 +1135,19 @@ private fun TimerScreen(
         onDispose { noisePlayer.stop() }
     }
 
-    LaunchedEffect(playing, timeLeft) {
-        if (playing && timeLeft > 0) {
-            delay(1_000)
-            timeLeft -= 1
-        }
-        if (playing && timeLeft == 0) {
-            playing = false
-            viewModel.addFocusSession(selectedTask, totalSeconds.toLong())
+    LaunchedEffect(playing, mode, timeLeft, elapsedSeconds) {
+        if (!playing) return@LaunchedEffect
+        delay(1_000)
+        if (mode == FocusMode.COUNTDOWN) {
+            if (timeLeft > 1) {
+                timeLeft -= 1
+            } else {
+                timeLeft = 0
+                playing = false
+                viewModel.addFocusSession(selectedTask, totalSeconds.toLong())
+            }
+        } else {
+            elapsedSeconds += 1
         }
     }
 
@@ -1138,7 +1173,11 @@ private fun TimerScreen(
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(selectedTask?.title ?: "自由专注", style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
-                Text("$totalMinutes 分钟番茄钟", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    if (mode == FocusMode.COUNTDOWN) "$totalMinutes 分钟番茄钟" else "正向计时",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             DropdownMenu(expanded = taskMenuOpen, onDismissRequest = { taskMenuOpen = false }) {
                 DropdownMenuItem(text = { Text("自由专注") }, onClick = {
@@ -1154,27 +1193,48 @@ private fun TimerScreen(
             }
         }
         Spacer(Modifier.height(24.dp))
-        DurationSelector(
-            totalMinutes = totalMinutes,
-            onSelect = setDuration,
-            onCustom = {
-                customMinutesText = totalMinutes.toString()
-                customDurationOpen = true
+        FocusModeSelector(
+            mode = mode,
+            onSelect = {
+                if (mode != it) {
+                    mode = it
+                    resetTimer()
+                }
             },
         )
+        if (mode == FocusMode.COUNTDOWN) {
+            Spacer(Modifier.height(12.dp))
+            DurationSelector(
+                totalMinutes = totalMinutes,
+                onSelect = setDuration,
+                onCustom = {
+                    customMinutesText = totalMinutes.toString()
+                    customDurationOpen = true
+                },
+            )
+        }
         Spacer(Modifier.height(32.dp))
-        TimerDial(timeLeft = timeLeft, totalSeconds = totalSeconds)
+        TimerDial(
+            seconds = if (mode == FocusMode.COUNTDOWN) timeLeft else elapsedSeconds,
+            progress = if (mode == FocusMode.COUNTDOWN) {
+                (totalSeconds - timeLeft).toFloat() / totalSeconds
+            } else {
+                (elapsedSeconds % 60) / 60f
+            },
+        )
         Spacer(Modifier.height(42.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(StackGap), verticalAlignment = Alignment.CenterVertically) {
             TimerButton(icon = Icons.Rounded.Stop, size = 56.dp, selected = false, contentDescription = "结束") {
-                if (timeLeft < totalSeconds) viewModel.addFocusSession(selectedTask, (totalSeconds - timeLeft).toLong())
+                val recordedSeconds = if (mode == FocusMode.COUNTDOWN) totalSeconds - timeLeft else elapsedSeconds
+                if (recordedSeconds > 0) viewModel.addFocusSession(selectedTask, recordedSeconds.toLong())
                 playing = false
                 timeLeft = totalSeconds
+                elapsedSeconds = 0
             }
             TimerButton(icon = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, size = 80.dp, selected = true, contentDescription = "开始或暂停") {
                 playing = !playing
             }
-            TimerButton(icon = Icons.Rounded.MusicNote, size = 56.dp, selected = noiseOn, contentDescription = "棕噪音") {
+            TimerButton(icon = Icons.Rounded.MusicNote, size = 56.dp, selected = noiseOn, contentDescription = "背景音") {
                 noiseOn = !noiseOn
                 if (noiseOn) noisePlayer.start() else noisePlayer.stop()
             }
@@ -1191,6 +1251,22 @@ private fun TimerScreen(
                 customDurationOpen = false
             },
         )
+    }
+}
+
+@Composable
+private fun FocusModeSelector(
+    mode: FocusMode,
+    onSelect: (FocusMode) -> Unit,
+) {
+    ChipRow {
+        FocusMode.entries.forEach { item ->
+            FilterChip(
+                selected = mode == item,
+                onClick = { onSelect(item) },
+                label = { Text(item.label) },
+            )
+        }
     }
 }
 
@@ -1255,10 +1331,9 @@ private fun CustomDurationDialog(
 }
 
 @Composable
-private fun TimerDial(timeLeft: Int, totalSeconds: Int) {
-    val progress = (totalSeconds - timeLeft).toFloat() / totalSeconds
-    val minutes = (timeLeft / 60).toString().padStart(2, '0')
-    val seconds = (timeLeft % 60).toString().padStart(2, '0')
+private fun TimerDial(seconds: Int, progress: Float) {
+    val minutes = (seconds / 60).toString().padStart(2, '0')
+    val remainingSeconds = (seconds % 60).toString().padStart(2, '0')
     Box(Modifier.size(270.dp), contentAlignment = Alignment.Center) {
         Box(
             Modifier
@@ -1276,7 +1351,7 @@ private fun TimerDial(timeLeft: Int, totalSeconds: Int) {
             drawArc(
                 color = ClarityPrimary,
                 startAngle = -90f,
-                sweepAngle = 360f * progress,
+                sweepAngle = 360f * progress.coerceIn(0f, 1f),
                 useCenter = false,
                 topLeft = Offset(stroke, stroke),
                 size = androidx.compose.ui.geometry.Size(size.width - stroke * 2, size.height - stroke * 2),
@@ -1290,7 +1365,7 @@ private fun TimerDial(timeLeft: Int, totalSeconds: Int) {
                 .shadow(8.dp, CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            Text("$minutes:$seconds", fontSize = 58.sp, fontWeight = FontWeight.Light, color = MaterialTheme.colorScheme.primary)
+            Text("$minutes:$remainingSeconds", fontSize = 58.sp, fontWeight = FontWeight.Light, color = MaterialTheme.colorScheme.primary)
         }
     }
 }
@@ -1600,7 +1675,13 @@ private fun SettingsScreen(viewModel: ClarityViewModel) {
             onDismissRequest = { instructionsOpen = false },
             title = { Text("使用说明") },
             text = {
-                Text("在日历页查看每天的任务安排；在任务页通过分类、搜索、优先级和状态筛选任务；新建任务时可设置习惯或重复规则；专注页可围绕任务开启 25 分钟番茄钟，完成后统计页会自动更新。")
+                Text(
+                    "任务：创建、编辑、完成或删除待办，时间可留空。\n" +
+                        "日历：按日期查看安排，切换周/月范围。\n" +
+                        "专注：选择倒计时或正计时，结束后记录时长。\n" +
+                        "统计：查看完成率、专注时长和分类分布。\n" +
+                        "设置：调整主题色。"
+                )
             },
             confirmButton = { TextButton(onClick = { instructionsOpen = false }) { Text("知道了") } },
         )
