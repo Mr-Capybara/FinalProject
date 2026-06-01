@@ -93,8 +93,9 @@ fun calculateDashboardStats(
     val currentWeekStart = today.with(DayOfWeek.MONDAY)
     val previousWeekStart = currentWeekStart.minusWeeks(1)
     fun sessionDate(session: FocusSessionEntity) = Instant.ofEpochMilli(session.completedAt).atZone(zoneId).toLocalDate()
-    val currentWeekSeconds = focusSessions
+    val currentWeekSessions = focusSessions
         .filter { !sessionDate(it).isBefore(currentWeekStart) && !sessionDate(it).isAfter(today) }
+    val currentWeekSeconds = currentWeekSessions
         .sumOf { it.durationSeconds }
     val previousWeekSeconds = focusSessions
         .filter {
@@ -120,13 +121,88 @@ fun calculateDashboardStats(
             )
         }
 
+    val todayInstances = taskInstancesForDate(tasks, completions, today)
+    val weekCompletion = weekDates(today).map { date ->
+        val instances = taskInstancesForDate(tasks, completions, date)
+        CompletionBucket(
+            date = date,
+            completed = instances.count { it.completed },
+            total = instances.size,
+        )
+    }
+    val habitProgress = tasks
+        .filter { it.isHabit }
+        .map { habitProgressForTask(it, completions, today) }
+    val todayHabitInstances = todayInstances.filter { it.task.isHabit }
+    val recentHabitInstances = generateSequence(today.minusDays(29)) { it.plusDays(1) }
+        .takeWhile { !it.isAfter(today) }
+        .flatMap { date -> taskInstancesForDate(tasks.filter { it.isHabit }, completions, date).asSequence() }
+        .toList()
+    val recentHabitsDone = recentHabitInstances.count { it.completed }
+    val averageFocusMinutes = if (currentWeekSessions.isEmpty()) {
+        0
+    } else {
+        (currentWeekSessions.sumOf { it.durationSeconds }.toDouble() / currentWeekSessions.size / 60).roundToInt()
+    }
+
     return DashboardStats(
         focusSeconds = focusSessions.sumOf { it.durationSeconds },
         focusTrendPercent = trend,
         completionRate = completionRate,
         tasksDone = completedInstances.size,
         currentStreakDays = currentStreakDays(completedInstances.map { it.date }.toSet(), today),
+        todayCompleted = todayInstances.count { it.completed },
+        todayTotal = todayInstances.size,
+        weeklyCompletion = weekCompletion,
+        todayHabitsDone = todayHabitInstances.count { it.completed },
+        todayHabitsTotal = todayHabitInstances.size,
+        habitCompletionRate30Days = if (recentHabitInstances.isEmpty()) 0 else ((recentHabitsDone.toDouble() / recentHabitInstances.size) * 100).roundToInt(),
+        currentHabitStreak = habitProgress.maxOfOrNull { it.currentStreak } ?: 0,
+        bestHabitStreak = habitProgress.maxOfOrNull { it.bestStreak } ?: 0,
+        weeklyFocusSessions = currentWeekSessions.size,
+        averageFocusMinutes = averageFocusMinutes,
+        habitLeaders = habitProgress
+            .sortedWith(compareByDescending<HabitProgress> { it.currentStreak }.thenByDescending { it.completionRate30Days }.thenBy { it.title })
+            .take(3),
         categoryDistribution = categoryDistribution,
+    )
+}
+
+fun habitProgressForTask(
+    task: TaskEntity,
+    completions: List<TaskCompletionEntity>,
+    today: LocalDate,
+): HabitProgress {
+    val completionDates = completions
+        .asSequence()
+        .filter { it.taskId == task.id }
+        .mapNotNull { runCatching { LocalDate.parse(it.date) }.getOrNull() }
+        .toSet()
+    val scheduledDates = occurrenceDates(task, today)
+    val currentStreak = scheduledDates.asReversed().takeWhile { it in completionDates }.count()
+    var bestStreak = 0
+    var run = 0
+    scheduledDates.forEach { date ->
+        if (date in completionDates) {
+            run += 1
+            bestStreak = maxOf(bestStreak, run)
+        } else {
+            run = 0
+        }
+    }
+    val recentDates = scheduledDates.filter { !it.isBefore(today.minusDays(29)) }
+    val recentCompleted = recentDates.count { it in completionDates }
+    val repeatRule = RepeatRule.fromStored(task.repeatRule)
+
+    return HabitProgress(
+        taskId = task.id,
+        title = task.title,
+        currentStreak = currentStreak,
+        bestStreak = bestStreak,
+        completionRate30Days = if (recentDates.isEmpty()) 0 else ((recentCompleted.toDouble() / recentDates.size) * 100).roundToInt(),
+        completedToday = today in completionDates,
+        scheduledToday = task.occursOn(today),
+        streakUnit = if (repeatRule == RepeatRule.DAILY || task.isHabit && repeatRule == RepeatRule.NONE) "天" else "次",
     )
 }
 
@@ -150,4 +226,13 @@ fun occurrenceCountUntil(task: TaskEntity, today: LocalDate): Int {
         RepeatRule.WEEKLY -> ChronoUnit.WEEKS.between(start, today).toInt() + 1
         RepeatRule.MONTHLY -> ChronoUnit.MONTHS.between(start.withDayOfMonth(1), today.withDayOfMonth(1)).toInt() + 1
     }
+}
+
+private fun occurrenceDates(task: TaskEntity, today: LocalDate): List<LocalDate> {
+    val start = runCatching { LocalDate.parse(task.date) }.getOrNull() ?: return emptyList()
+    if (today.isBefore(start)) return emptyList()
+    return generateSequence(start) { it.plusDays(1) }
+        .takeWhile { !it.isAfter(today) }
+        .filter { task.occursOn(it) }
+        .toList()
 }

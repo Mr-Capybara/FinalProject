@@ -64,8 +64,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -81,6 +84,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -113,7 +119,9 @@ import com.example.finalproject.ClarityViewModel
 import com.example.finalproject.audio.BrownNoisePlayer
 import com.example.finalproject.data.CategoryShare
 import com.example.finalproject.data.CompletionFilter
+import com.example.finalproject.data.CompletionBucket
 import com.example.finalproject.data.FocusSessionEntity
+import com.example.finalproject.data.HabitProgress
 import com.example.finalproject.data.Priority
 import com.example.finalproject.data.RepeatRule
 import com.example.finalproject.data.TaskCompletionEntity
@@ -129,8 +137,10 @@ import com.example.finalproject.ui.theme.ClarityPrimaryContainer
 import com.example.finalproject.ui.theme.ClaritySecondaryContainer
 import com.example.finalproject.ui.theme.ClarityTertiaryContainer
 import kotlinx.coroutines.delay
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 
@@ -534,7 +544,11 @@ private fun CalendarDateGrid(
                     } else {
                         val selected = date == selectedDate
                         val today = date == LocalDate.now()
-                        val hasTasks = taskInstancesForDate(tasks, completions, date).isNotEmpty()
+                        val dayInstances = taskInstancesForDate(tasks, completions, date)
+                        val hasRegularTasks = dayInstances.any { !it.task.isHabit }
+                        val habitInstances = dayInstances.filter { it.task.isHabit }
+                        val hasHabits = habitInstances.isNotEmpty()
+                        val hasCompletedHabit = habitInstances.any { it.completed }
                         Box(
                             modifier = Modifier
                                 .weight(1f)
@@ -560,14 +574,25 @@ private fun CalendarDateGrid(
                                     color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                                     style = MaterialTheme.typography.bodyMedium,
                                 )
-                                if (hasTasks && !selected) {
-                                    Box(
-                                        Modifier
+                                if ((hasRegularTasks || hasHabits) && !selected) {
+                                    Row(
+                                        modifier = Modifier
                                             .align(Alignment.BottomCenter)
-                                            .padding(bottom = 4.dp)
-                                            .size(4.dp)
-                                            .background(MaterialTheme.colorScheme.primary, CircleShape)
-                                    )
+                                            .padding(bottom = 4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        if (hasRegularTasks) {
+                                            Box(
+                                                Modifier
+                                                    .size(4.dp)
+                                                    .background(MaterialTheme.colorScheme.primary, CircleShape)
+                                            )
+                                        }
+                                        if (hasHabits) {
+                                            HabitCalendarDot(completed = hasCompletedHabit)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -579,6 +604,21 @@ private fun CalendarDateGrid(
             }
         }
     }
+}
+
+@Composable
+private fun HabitCalendarDot(completed: Boolean) {
+    val color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.75f)
+    val modifier = Modifier
+        .size(5.dp)
+        .clip(CircleShape)
+    Box(
+        if (completed) {
+            modifier.background(color, CircleShape)
+        } else {
+            modifier.border(1.dp, color, CircleShape)
+        }
+    )
 }
 
 @Composable
@@ -669,6 +709,9 @@ private fun EditTaskScreen(
     var repeatRule by remember(task?.id) { mutableStateOf(task?.let { RepeatRule.fromStored(it.repeatRule) } ?: RepeatRule.NONE) }
     var newCategoryOpen by remember { mutableStateOf(false) }
     var deleteConfirmOpen by remember { mutableStateOf(false) }
+    var datePickerOpen by remember { mutableStateOf(false) }
+    var startTimePickerOpen by remember { mutableStateOf(false) }
+    var endTimePickerOpen by remember { mutableStateOf(false) }
     val visibleCategories = (listOf(category) + categories.filter { it != "全部任务" })
         .map { it.trim() }
         .filter { it.isNotBlank() }
@@ -755,32 +798,28 @@ private fun EditTaskScreen(
                 }
                 PageCard {
                     FieldLabel("日期与时间")
-                    OutlinedTextField(
+                    ReadOnlyPickerField(
                         value = date,
-                        onValueChange = { date = it },
-                        label = { Text("日期") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        label = "日期",
+                        icon = Icons.Rounded.CalendarMonth,
                         modifier = Modifier.fillMaxWidth(),
-                        shape = ItemShape,
+                        onClick = { datePickerOpen = true },
                     )
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedTextField(
+                        ReadOnlyPickerField(
                             value = startTime,
-                            onValueChange = { startTime = it },
-                            label = { Text("开始时间") },
-                            singleLine = true,
+                            label = "开始时间",
+                            icon = Icons.Rounded.Timer,
                             modifier = Modifier.weight(1f),
-                            shape = ItemShape,
+                            onClick = { startTimePickerOpen = true },
                         )
-                        OutlinedTextField(
+                        ReadOnlyPickerField(
                             value = endTime,
-                            onValueChange = { endTime = it },
-                            label = { Text("结束时间") },
-                            singleLine = true,
+                            label = "结束时间",
+                            icon = Icons.Rounded.Timer,
                             modifier = Modifier.weight(1f),
-                            shape = ItemShape,
+                            onClick = { endTimePickerOpen = true },
                         )
                     }
                 }
@@ -892,6 +931,127 @@ private fun EditTaskScreen(
             },
         )
     }
+    if (datePickerOpen) {
+        TaskDatePickerDialog(
+            value = date,
+            onDismiss = { datePickerOpen = false },
+            onConfirm = {
+                date = it
+                datePickerOpen = false
+            },
+        )
+    }
+    if (startTimePickerOpen) {
+        TaskTimePickerDialog(
+            title = "开始时间",
+            value = startTime,
+            onDismiss = { startTimePickerOpen = false },
+            onConfirm = {
+                startTime = it
+                startTimePickerOpen = false
+            },
+        )
+    }
+    if (endTimePickerOpen) {
+        TaskTimePickerDialog(
+            title = "结束时间",
+            value = endTime,
+            onDismiss = { endTimePickerOpen = false },
+            onConfirm = {
+                endTime = it
+                endTimePickerOpen = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun ReadOnlyPickerField(
+    value: String,
+    label: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Box(modifier) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {},
+            label = { Text(label) },
+            readOnly = true,
+            singleLine = true,
+            trailingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            modifier = Modifier.fillMaxWidth(),
+            shape = ItemShape,
+        )
+        Box(
+            Modifier
+                .matchParentSize()
+                .clip(ItemShape)
+                .clickable(onClick = onClick)
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TaskDatePickerDialog(
+    value: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    val pickerState = rememberDatePickerState(initialSelectedDateMillis = parseDraftDate(value).toPickerMillis())
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val selected = pickerState.selectedDateMillis
+                    if (selected != null) onConfirm(selected.toLocalDate().toString()) else onDismiss()
+                }
+            ) {
+                Text("确定")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    ) {
+        DatePicker(state = pickerState, showModeToggle = false)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TaskTimePickerDialog(
+    title: String,
+    value: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    val initialTime = parseDraftTime(value)
+    val pickerState = rememberTimePickerState(
+        initialHour = initialTime.hour,
+        initialMinute = initialTime.minute,
+        is24Hour = true,
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                TimePicker(state = pickerState)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(formatTime(pickerState.hour, pickerState.minute)) }) {
+                Text("确定")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
 }
 
 @Composable
@@ -1198,16 +1358,45 @@ private fun StatsScreen(
                 }
                 Icon(Icons.Rounded.Timer, contentDescription = null, tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), modifier = Modifier.size(96.dp))
             }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(StackGap), modifier = Modifier.fillMaxWidth()) {
-            PageCard(modifier = Modifier.weight(1f)) {
-                FieldLabel("完成率")
-                Spacer(Modifier.height(12.dp))
-                CompletionRing(stats.completionRate)
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.fillMaxWidth()) {
+                QuietMetric("本周专注", stats.weeklyFocusSessions.toString(), "次", Modifier.weight(1f))
+                QuietMetric("平均时长", stats.averageFocusMinutes.toString(), "分钟", Modifier.weight(1f))
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(StackGap)) {
-                SmallMetricCard("已完成", stats.tasksDone.toString(), "项")
-                SmallMetricCard("连续天数", stats.currentStreakDays.toString(), "天")
+        }
+        PageCard {
+            FieldLabel("任务概览")
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                CompletionRing(stats.completionRate)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    QuietMetric("今日完成", "${stats.todayCompleted}/${stats.todayTotal}", "项")
+                    QuietMetric("累计完成", stats.tasksDone.toString(), "项")
+                    QuietMetric("连续天数", stats.currentStreakDays.toString(), "天")
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            WeekCompletionTrend(stats.weeklyCompletion)
+        }
+        PageCard {
+            FieldLabel("习惯养成")
+            Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.fillMaxWidth()) {
+                QuietMetric("今日打卡", "${stats.todayHabitsDone}/${stats.todayHabitsTotal}", "项", Modifier.weight(1f))
+                QuietMetric("30 天完成率", stats.habitCompletionRate30Days.toString(), "%", Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.fillMaxWidth()) {
+                QuietMetric("当前连续", stats.currentHabitStreak.toString(), "次", Modifier.weight(1f))
+                QuietMetric("最佳连续", stats.bestHabitStreak.toString(), "次", Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(16.dp))
+            if (stats.habitLeaders.isEmpty()) {
+                Text("开启习惯打卡后会显示养成趋势。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    stats.habitLeaders.forEach { progress ->
+                        HabitProgressRow(progress)
+                    }
+                }
             }
         }
         PageCard {
@@ -1222,6 +1411,85 @@ private fun StatsScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun QuietMetric(title: String, value: String, unit: String, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
+            if (unit.isNotBlank()) {
+                Spacer(Modifier.width(4.dp))
+                Text(unit, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(bottom = 3.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeekCompletionTrend(buckets: List<CompletionBucket>) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("本周趋势", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            buckets.forEach { bucket ->
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Bottom,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .height(44.dp)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.BottomCenter,
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth(0.38f)
+                                .height((4 + bucket.percentage * 0.4f).dp)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.72f), CircleShape)
+                        )
+                    }
+                    Text(weekdayLabel(bucket.date), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HabitProgressRow(progress: HabitProgress) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(progress.title, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(12.dp))
+            Text(
+                "连续 ${progress.currentStreak}${progress.streakUnit} · ${progress.completionRate30Days}%",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .background(MaterialTheme.colorScheme.surfaceContainerLow, CircleShape)
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth((progress.completionRate30Days / 100f).coerceIn(0f, 1f))
+                    .fillMaxHeight()
+                    .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.65f), CircleShape)
+            )
         }
     }
 }
@@ -1381,6 +1649,7 @@ private fun TaskRow(
     onClick: () -> Unit,
 ) {
     val task = instance.task
+    val habitAccent = if (task.isHabit) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.55f) else Color.Transparent
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1391,6 +1660,13 @@ private fun TaskRow(
             .padding(StackGap),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Box(
+            Modifier
+                .width(3.dp)
+                .height(42.dp)
+                .background(habitAccent, CircleShape)
+        )
+        Spacer(Modifier.width(10.dp))
         Box(
             modifier = Modifier
                 .size(24.dp)
@@ -1539,4 +1815,36 @@ private fun categories(tasks: List<TaskEntity>): List<String> {
 
 private fun categoryColors(index: Int): Color {
     return listOf(ClarityPrimary, ClarityPrimaryContainer, ClaritySecondaryContainer, ClarityTertiaryContainer)[index % 4]
+}
+
+private fun parseDraftDate(value: String): LocalDate {
+    return runCatching { LocalDate.parse(value) }.getOrDefault(LocalDate.now())
+}
+
+private fun parseDraftTime(value: String): LocalTime {
+    return runCatching { LocalTime.parse(value) }.getOrDefault(LocalTime.NOON)
+}
+
+private fun LocalDate.toPickerMillis(): Long {
+    return atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+}
+
+private fun Long.toLocalDate(): LocalDate {
+    return Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate()
+}
+
+private fun formatTime(hour: Int, minute: Int): String {
+    return "${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}"
+}
+
+private fun weekdayLabel(date: LocalDate): String {
+    return when (date.dayOfWeek.value) {
+        1 -> "一"
+        2 -> "二"
+        3 -> "三"
+        4 -> "四"
+        5 -> "五"
+        6 -> "六"
+        else -> "日"
+    }
 }

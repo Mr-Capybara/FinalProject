@@ -8,6 +8,7 @@ import com.example.finalproject.data.TaskCompletionEntity
 import com.example.finalproject.data.TaskEntity
 import com.example.finalproject.data.calculateDashboardStats
 import com.example.finalproject.data.filterTaskInstances
+import com.example.finalproject.data.habitProgressForTask
 import com.example.finalproject.data.taskInstancesForDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -80,7 +81,74 @@ class TaskCalculationsTest {
         assertEquals(3, stats.tasksDone)
         assertTrue(stats.completionRate > 0)
         assertEquals(2, stats.currentStreakDays)
+        assertEquals(2, stats.todayCompleted)
+        assertEquals(2, stats.todayTotal)
+        assertEquals(1, stats.todayHabitsDone)
+        assertEquals(1, stats.todayHabitsTotal)
+        assertEquals(100, stats.habitCompletionRate30Days)
+        assertEquals(2, stats.currentHabitStreak)
+        assertEquals(1, stats.weeklyFocusSessions)
+        assertEquals(30, stats.averageFocusMinutes)
         assertEquals("健康", stats.categoryDistribution.first().name)
+    }
+
+    @Test
+    fun calculatesDailyHabitProgressWithCurrentAndBestStreaks() {
+        val today = LocalDate.parse("2026-05-11")
+        val habit = task(id = "daily", title = "背单词", repeat = RepeatRule.DAILY, isHabit = true, date = "2026-05-08")
+        val completions = listOf(
+            TaskCompletionEntity("daily", "2026-05-09", 1L),
+            TaskCompletionEntity("daily", "2026-05-10", 1L),
+            TaskCompletionEntity("daily", "2026-05-11", 1L),
+        )
+
+        val progress = habitProgressForTask(habit, completions, today)
+
+        assertEquals(3, progress.currentStreak)
+        assertEquals(3, progress.bestStreak)
+        assertEquals(75, progress.completionRate30Days)
+        assertTrue(progress.completedToday)
+        assertEquals("天", progress.streakUnit)
+    }
+
+    @Test
+    fun dailyHabitStreakStopsAtMissingOccurrence() {
+        val today = LocalDate.parse("2026-05-11")
+        val habit = task(id = "daily", title = "背单词", repeat = RepeatRule.DAILY, isHabit = true, date = "2026-05-09")
+        val completions = listOf(
+            TaskCompletionEntity("daily", "2026-05-09", 1L),
+            TaskCompletionEntity("daily", "2026-05-11", 1L),
+        )
+
+        val progress = habitProgressForTask(habit, completions, today)
+
+        assertEquals(1, progress.currentStreak)
+        assertEquals(1, progress.bestStreak)
+        assertEquals(67, progress.completionRate30Days)
+    }
+
+    @Test
+    fun calculatesWeeklyAndMonthlyHabitProgressByOccurrence() {
+        val weekly = task(id = "weekly", title = "周复盘", repeat = RepeatRule.WEEKLY, isHabit = true, date = "2026-05-04")
+        val monthly = task(id = "monthly", title = "月度整理", repeat = RepeatRule.MONTHLY, isHabit = true, date = "2026-01-15")
+        val completions = listOf(
+            TaskCompletionEntity("weekly", "2026-05-11", 1L),
+            TaskCompletionEntity("weekly", "2026-05-18", 1L),
+            TaskCompletionEntity("weekly", "2026-05-25", 1L),
+            TaskCompletionEntity("monthly", "2026-01-15", 1L),
+            TaskCompletionEntity("monthly", "2026-03-15", 1L),
+            TaskCompletionEntity("monthly", "2026-04-15", 1L),
+        )
+
+        val weeklyProgress = habitProgressForTask(weekly, completions, LocalDate.parse("2026-05-25"))
+        val monthlyProgress = habitProgressForTask(monthly, completions, LocalDate.parse("2026-04-15"))
+
+        assertEquals(3, weeklyProgress.currentStreak)
+        assertEquals(3, weeklyProgress.bestStreak)
+        assertEquals("次", weeklyProgress.streakUnit)
+        assertEquals(2, monthlyProgress.currentStreak)
+        assertEquals(2, monthlyProgress.bestStreak)
+        assertEquals("次", monthlyProgress.streakUnit)
     }
 
     private fun task(

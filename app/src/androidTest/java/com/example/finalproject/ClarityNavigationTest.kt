@@ -2,6 +2,7 @@ package com.example.finalproject
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import org.junit.Rule
@@ -25,8 +26,20 @@ class ClarityNavigationTest {
 
         composeRule.onNodeWithText("统计").performClick()
         composeRule.onNodeWithText("专注时长").assertIsDisplayed()
+        composeRule.onNodeWithText("习惯养成").assertIsDisplayed()
+        composeRule.onNodeWithText("平均时长").assertIsDisplayed()
 
         composeRule.onNodeWithText("设置").performClick()
         composeRule.onNodeWithText("外观").assertIsDisplayed()
+    }
+
+    @Test
+    fun editScreenShowsDateAndTimePickerEntrypoints() {
+        composeRule.onNodeWithText("任务").performClick()
+        composeRule.onNodeWithContentDescription("新增任务").performClick()
+
+        composeRule.onNodeWithText("日期").assertIsDisplayed()
+        composeRule.onNodeWithText("开始时间").assertIsDisplayed()
+        composeRule.onNodeWithText("结束时间").assertIsDisplayed()
     }
 }

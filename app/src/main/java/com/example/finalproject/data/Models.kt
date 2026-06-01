@@ -55,10 +55,40 @@ data class DashboardStats(
     val completionRate: Int,
     val tasksDone: Int,
     val currentStreakDays: Int,
+    val todayCompleted: Int,
+    val todayTotal: Int,
+    val weeklyCompletion: List<CompletionBucket>,
+    val todayHabitsDone: Int,
+    val todayHabitsTotal: Int,
+    val habitCompletionRate30Days: Int,
+    val currentHabitStreak: Int,
+    val bestHabitStreak: Int,
+    val weeklyFocusSessions: Int,
+    val averageFocusMinutes: Int,
+    val habitLeaders: List<HabitProgress>,
     val categoryDistribution: List<CategoryShare>,
 )
 
 data class CategoryShare(
     val name: String,
     val percentage: Int,
+)
+
+data class CompletionBucket(
+    val date: LocalDate,
+    val completed: Int,
+    val total: Int,
+) {
+    val percentage: Int = if (total == 0) 0 else ((completed.toDouble() / total) * 100).toInt()
+}
+
+data class HabitProgress(
+    val taskId: String,
+    val title: String,
+    val currentStreak: Int,
+    val bestStreak: Int,
+    val completionRate30Days: Int,
+    val completedToday: Boolean,
+    val scheduledToday: Boolean,
+    val streakUnit: String,
 )
